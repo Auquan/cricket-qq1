@@ -228,9 +228,14 @@ class MyTradingFunctions():
             data = lookbackInstrumentFeatures.getFeatureDf(f).fillna(0)
             if (data.dtypes==object).bool():
                 data = self.__featureDict[f].transform(data)        #DF with rows=timestamp and columns=instrumentIds
-            X.append(data)
+                X.append(data)
+                # import pdb;pdb.set_trace()
+                x_star.append(np.array(data[-1]))
+            else:
+                X.append(data.values)
+
+                x_star.append(np.array(data.iloc[-1]))
             import pdb;pdb.set_trace()
-            x_star.append(np.array(data[-1]))
         
         X = np.nan_to_num(np.array(X))                                             # shape = featureKeys x timestamp x instrumentIds
         x_star = np.nan_to_num(np.array(x_star))                                       # shape = featureKeys x instrumentIds
