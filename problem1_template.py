@@ -13,6 +13,7 @@ import pandas as pd
 import numpy as np
 import sys
 from sklearn import linear_model
+from sklearn import preprocessing
 from sklearn.tree import DecisionTreeClassifier
 from sklearn import metrics as sm
 from sklearn.feature_selection import SelectKBest, f_regression, mutual_info_regression
@@ -43,8 +44,8 @@ class MyTradingFunctions():
         self.__dataParser = None
         self.dataSetId = 'p1'
         self.instrumentIds = ['trainingData']
-        self.startDate = '2010/01/01'
-        self.endDate = '2015/12/31'
+        self.startDate = '2010/01/02'
+        self.endDate = '2010/02/01'#'2015/12/31'
         self.params = {}
 
         # for example you can import and store an ML model from scikit learn in this dict
@@ -52,11 +53,12 @@ class MyTradingFunctions():
 
         # and set a frequency at which you want to update the model
 
-        self.updateFrequency = 300
+        self.updateFrequency = 6
         self.__featureKeys = []
         self.__featureDict = self.convertCategoricalVariablesAndTrain()
         self.predictionLogFile = open('predictions.csv', 'a')
         self.headerNotSet = True
+        self.threshold = 0.1
 
     ###########################################
     ## ONLY FILL THE FOUR FUNCTIONS BELOW    ##
@@ -69,6 +71,7 @@ class MyTradingFunctions():
         ids = self.instrumentIds 
 
         print('Converting Text Variables to Categorical Variables')
+
         for i in range(len(ids)):
             s = ids[i]
 
@@ -76,16 +79,26 @@ class MyTradingFunctions():
 
             feature_dict = {}
 
+            self.setFeatureKeys(data.columns)
+
             for feature in data.columns:
                 if data[feature].dtype==object:    
+                    # fs = data[feature].unique()
+                    # f_dict = {}
+                    # count = 0
+                    # for f in fs:
+                    #     data[feature][data[feature]==f] = count
+                    #     f_dict[f] = count
+                    #     count = count+1
+                    # feature_dict[feature] = f_dict
+
+                    le = preprocessing.LabelEncoder()
                     fs = data[feature].unique()
-                    f_dict = {}
-                    count = 0
-                    for f in fs:
-                        data[feature][data[feature]==f] = count
-                        f_dict[f] = count
-                        count = count+1
-                    feature_dict[feature] = f_dict
+                    le.fit(fs)
+                    
+                    data[feature] = le.transform(data[feature])
+
+                    feature_dict[feature] = le
 
             ########################################################
             ####    If you are training a model at the start    ####
@@ -99,8 +112,6 @@ class MyTradingFunctions():
             training_data['run_last_6_balls'] = training_data['innings_runs_before_ball'].rolling(6).sum()
             y = training_data[self.targetVariable]
             del training_data[self.targetVariable]
-
-            import pdb;pdb.set_trace()
 
             training_data.fillna(0, inplace=True)
 
@@ -117,7 +128,13 @@ class MyTradingFunctions():
             #self.model[s].fit(X_train, y_train) 
 
             lg = log_loss(y, self.model[s].predict_proba(training_data))
-            print(lg)
+            print('Log-Loss on training data: %.3f'%lg)
+
+            print('Setting prediction threshold...')
+
+            #### code to set prediction threshold
+            #### for now we are hardcoding
+            self.threshold = 0.1
 
             print('Done, moving now')
 
@@ -147,7 +164,7 @@ class MyTradingFunctions():
     ##############################################################################
 
         sumDict = {'featureKey': 'run_last_6_balls',
-                     'featureId': 'sum',
+                     'featureId': 'moving_sum',
                      'params': {'period': 6,
                                 'featureName': 'innings_runs_before_ball'}}
         return [sumDict]
@@ -198,7 +215,7 @@ class MyTradingFunctions():
         if updateNum<=2*self.updateFrequency:
             return predictions
 
-        import pdb;pdb.set_trace()
+        
         # Once you have enough data, start making predictions
 
         # Loading the target Variable
@@ -209,13 +226,12 @@ class MyTradingFunctions():
         x_star = []                             # Data point at time t (whose Value will be predicted) featureKeys x instrumentIds
         for f in self.__featureKeys:
             data = lookbackInstrumentFeatures.getFeatureDf(f).fillna(0)
-            if data.dtype==object:
-                fs = data.unique()
-                for fss in fs:
-                    data[data==fss] = self.feature_dict[f][fss]        #DF with rows=timestamp and columns=instrumentIds
-            X.append(data.values)
-            x_star.append(np.array(data.iloc[-1]))
-
+            if (data.dtypes==object).bool():
+                data = self.__featureDict[f].transform(data)        #DF with rows=timestamp and columns=instrumentIds
+            X.append(data)
+            import pdb;pdb.set_trace()
+            x_star.append(np.array(data[-1]))
+        
         X = np.nan_to_num(np.array(X))                                             # shape = featureKeys x timestamp x instrumentIds
         x_star = np.nan_to_num(np.array(x_star))                                       # shape = featureKeys x instrumentIds
         
@@ -294,7 +310,7 @@ class MyTradingFunctions():
                          downloadUrl = 'https://s3.us-east-2.amazonaws.com/qq11-data',
                          targetVariable = self.targetVariable,
                          timeKey = 'date',
-                         timeStringFormat = '%Y-%m-%d',
+                         timeStringFormat = '%Y-%m-%d %H:%M:%S',
                          startDateStr=self.startDate,
                          endDateStr=self.endDate,
                          liveUpdates=True,
@@ -332,25 +348,6 @@ class MyTradingFunctions():
     def setFeatureKeys(self, featureList):
         self.__featureKeys = featureList
 
-    def getFeatureList(self):
-        return self.featureList
-
-    def getTargetVariableType(self):
-        return self.targetVariableType
-
-    # c for continuous, b for binary
-    def setTargetVariableType(self, targetVariableType):
-        self.targetVariableType = targetVariableType
-
-    # upper case is continuous, lower is binary
-    def setTargetVariableList(self, targetVariableList):
-        self.targetVariableList = targetVariableList
-
-    # upper case is continuous, lower is binary
-    def getTargetVariableList(self):
-        return self.targetVariableList
-
-    # upper case is continuous, lower is binary
     def setPredictionLogFile(self, logFileName):
         self.predictionLogFile = open(logFileName, 'a')
 
@@ -424,9 +421,10 @@ if __name__ == "__main__":
         print('pip install -U auquan_toolbox')
     else:
         print('Loading your config dicts and prediction function')
+        
         tf = MyTradingFunctions()
         print('Loaded config dicts and prediction function, Loading Problem Params')
-        tf.setInstrumentIds(['training_data'])
+        tf.setInstrumentIds(['trainingData'])
         tsParams = MyTradingParams(tf)
         print('Loaded Problem Params, Loading Backtester and Data')
         tradingSystem = TradingSystem(tsParams)

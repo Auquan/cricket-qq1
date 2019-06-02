@@ -3,7 +3,7 @@ from backtester.features.feature import Feature
 from datetime import timedelta
 from problem1_data_source import Problem1DataSource
 from problem1_execution_system import Problem1ExecutionSystem
-from backtester.timeRule.nse_time_rule import NSETimeRule
+from backtester.timeRule.custom_time_rule import CustomTimeRule
 from backtester.orderPlacer.backtesting_order_placer import BacktestingOrderPlacer
 from backtester.trading_system import TradingSystem
 from backtester.version import updateCheck
@@ -51,7 +51,7 @@ class MyTradingParams(TradingSystemParameters):
     def getDataParser(self):
         # instrumentIds = ['trainingData']
         ds = self.__tradingFunctions.setDataParser()
-        ds.loadLiveUpdates(self.__tradingFunctions.getFeatureList())
+        ds.loadLiveUpdates()
         return ds
         # return Problem2DataSource(cachedFolderName='historicalData/',
         #                      dataSetId=self.__dataSetId,
@@ -78,7 +78,7 @@ class MyTradingParams(TradingSystemParameters):
     a lot of time, you realistically wont be able to keep upto pace.
     '''
     def getTimeRuleForUpdates(self):
-        return NSETimeRule(startDate=self.__startDate, endDate=self.__endDate, frequency='M', sample='1')
+        return CustomTimeRule(startDate=self.__startDate, endDate=self.__endDate, frequency='S', sample='10', startTime='00:00', endTime='17:00')
 
     '''
     Returns a timedetla object to indicate frequency of updates to features
@@ -106,6 +106,7 @@ class MyTradingParams(TradingSystemParameters):
         customFeatures = {'prediction': TrainingPredictionFeature,
                 'fees_and_spread': FeesCalculator,
                 'ScoreCalculator' : ScoreCalculator,
+                'Pnl' : PnLCalculator,
                 'AccuracyCalculator' : AccuracyCalculator,
                 'TPCalculator' : TPCalculator,
                 'TNCalculator' : TNCalculator,
@@ -124,18 +125,17 @@ class MyTradingParams(TradingSystemParameters):
 
         predictionDict = {'featureKey': 'prediction',
                                 'featureId': 'prediction',
-                                 'params': {'function': self.__tradingFunctions,
-                                            'targetVariableType': self.__tradingFunctions.getTargetVariableType()}}
+                                 'params': {'function': self.__tradingFunctions}}
         feesConfigDict = {'featureKey': 'fees',
                           'featureId': 'fees_and_spread',
                           'params': {'feeDict': self.__fees,
                                     'price': self.__priceKey,
                                     'position' : 'position'}}
-        profitlossConfigDict = {'featureKey': 'pnl',
-                                'featureId': 'returnPnL',
-                                'params': {'price': self.__priceKey,
-                                    'position' : 'position',
-                                           'fees': 'fees'}}
+        # profitlossConfigDict = {'featureKey': 'pnl',
+        #                         'featureId': 'PnL',
+        #                         'params': {'price': self.__priceKey,
+        #                             'position' : 'position',
+        #                                    'fees': 'fees'}}
         capitalConfigDict = {'featureKey': 'capital',
                              'featureId': 'capital',
                              'params': {'price': self.__priceKey,
@@ -152,36 +152,46 @@ class MyTradingParams(TradingSystemParameters):
         tpDict = {'featureKey': 'truePositive',
                      'featureId': 'TPCalculator',
                      'params': {'predictionKey': 'prediction',
-                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
+                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey(),
+                                'threshold':self.__tradingFunctions.threshold}}
         tnDict = {'featureKey': 'trueNegative',
                      'featureId': 'TNCalculator',
                      'params': {'predictionKey': 'prediction',
-                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
+                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey(),
+                                'threshold':self.__tradingFunctions.threshold}}
         fpDict = {'featureKey': 'falsePositive',
                      'featureId': 'FPCalculator',
                      'params': {'predictionKey': 'prediction',
-                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
+                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey(),
+                                'threshold':self.__tradingFunctions.threshold}}
         fnDict = {'featureKey': 'falseNegative',
                      'featureId': 'FNCalculator',
                      'params': {'predictionKey': 'prediction',
-                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
+                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey(),
+                                'threshold':self.__tradingFunctions.threshold}}
         precisionDict = {'featureKey': 'precision',
                      'featureId': 'PrecisionCalculator',
                      'params': {'predictionKey': 'prediction',
+                                'truePositive':'truePositive',
+                                'falsePositive':'falsePositive',
                                 'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
         recallDict = {'featureKey': 'recall',
                      'featureId': 'RecallCalculator',
                      'params': {'predictionKey': 'prediction',
+                                'truePositive':'truePositive',
+                                'falseNegative':'falseNegative',
                                 'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
         f1Dict = {'featureKey': 'f1',
                      'featureId': 'F1Calculator',
                      'params': {'predictionKey': 'prediction',
+                                'precision':'precision',
+                                'recall':'recall',
                                 'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
         stockFeatureConfigs = self.__tradingFunctions.getInstrumentFeatureConfigDicts()
 
 
         return {INSTRUMENT_TYPE_STOCK: stockFeatureConfigs + [predictionDict,
-                feesConfigDict,profitlossConfigDict,capitalConfigDict,scoreDict,
+                feesConfigDict,capitalConfigDict,scoreDict,
                 accuracyDict, tpDict, tnDict, fpDict, fnDict, precisionDict, recallDict, f1Dict]
                 + self.__additionalInstrumentFeatureConfigDicts}
 
@@ -209,14 +219,13 @@ class MyTradingParams(TradingSystemParameters):
     '''
 
     def getExecutionSystem(self):
-        return Problem2ExecutionSystem(enter_threshold=0.7,
+        return Problem1ExecutionSystem(enter_threshold=0.7,
                                     exit_threshold=0.55,
                                     longLimit=1,
                                     shortLimit=1,
                                     capitalUsageLimit=0.10 * self.getStartingCapital(),
                                     enterlotSize=1, exitlotSize = 1,
-                                    limitType='L', price=self.__priceKey,
-                                    predictionType=self.__tradingFunctions.getTargetVariableType())
+                                    limitType='L', price=self.__priceKey)
 
     '''
     Returns the type of order placer we want to use. its an implementation of the class OrderPlacer.
@@ -319,43 +328,36 @@ class FeesCalculator(Feature):
 
 #         return bhpnl
 
-# class PnLCalculator(Feature):
+class PnLCalculator(Feature):
 
-#     @classmethod
-#     def computeForInstrument(cls, updateNum, time, featureParams, featureKey, instrumentManager):
-#         instrumentLookbackData = instrumentManager.getLookbackInstrumentFeatures()
+    @classmethod
+    def computeForInstrument(cls, updateNum, time, featureParams, featureKey, instrumentManager):
+        instrumentLookbackData = instrumentManager.getLookbackInstrumentFeatures()
 
-#         priceData = instrumentLookbackData.getFeatureDf(featureParams['price'])
-#         positionData = instrumentLookbackData.getFeatureDf(featureParams['position'])
-#         pnlData = instrumentLookbackData.getFeatureDf(featureKey)
-#         currentPosition = positionData.iloc[-1]
-#         previousPosition = 0 if updateNum < 2 else positionData.iloc[-2]
-#         previousPnl = 0 if updateNum < 2 else pnlData.iloc[-1]
-#         changeInPosition = currentPosition - previousPosition
-#         feesData = instrumentLookbackData.getFeatureDf(featureParams['fees'])
-#         if len(priceData)>2:
-#             currentPrice = priceData.iloc[-1]
-#             previousPrice = priceData.iloc[-2]
-#         else:
-#             currentPrice = 0
-#             previousPrice = 0
-#         zeroSeries = currentPrice * 0
+        priceData = instrumentLookbackData.getFeatureDf(featureParams['price'])
+        positionData = instrumentLookbackData.getFeatureDf(featureParams['position'])
+        pnlData = instrumentLookbackData.getFeatureDf(featureKey)
+        currentPosition = positionData.iloc[-1]
+        previousPosition = 0 if updateNum < 2 else positionData.iloc[-2]
+        previousPnl = 0 if updateNum < 2 else pnlData.iloc[-1]
+        changeInPosition = currentPosition - previousPosition
+        feesData = instrumentLookbackData.getFeatureDf(featureParams['fees'])
+        if len(priceData)>2:
+            currentPrice = priceData.iloc[-1]
+            previousPrice = priceData.iloc[-2]
+        else:
+            currentPrice = 0
+            previousPrice = 0
+        zeroSeries = currentPrice * 0
 
-#         cumulativePnl = zeroSeries
-#         fees = feesData.iloc[-1]
-#         tradePrice = pd.Series([instrumentManager.getInstrument(x).getLastTradePrice() for x in priceData.columns], index=priceData.columns)
-#         tradeLoss = pd.Series([instrumentManager.getInstrument(x).getLastTradeLoss() for x in priceData.columns], index=priceData.columns)
+        cumulativePnl = zeroSeries
+        fees = feesData.iloc[-1]
+        tradePrice = pd.Series([instrumentManager.getInstrument(x).getLastTradePrice() for x in priceData.columns], index=priceData.columns)
+        tradeLoss = pd.Series([instrumentManager.getInstrument(x).getLastTradeLoss() for x in priceData.columns], index=priceData.columns)
 
-#         # cumulativePnl += (100*(1+previousPnl)*(1+currentPosition*currentPrice) - 100)/100
-#         cumulativePnl += (100+previousPnl)*(1+currentPosition*currentPrice) - (100)
-#         print('Srategy Pnl: %.3f'%cumulativePnl.iloc[0])
-#         # printdf = pd.DataFrame(index=instrumentManager.getAllInstrumentsByInstrumentId())
-#         # printdf['previousPnl'] = previousPnl
-#         # printdf['currentPrice'] = currentPrice
-#         # printdf['currentPosition'] = currentPosition
-#         # printdf['Srategy Pnl'] = cumulativePnl
-#         # print(printdf)
-#         return cumulativePnl
+        # cumulativePnl += (100*(1+previousPnl)*(1+currentPosition*currentPrice) - 100)/100
+        cumulativePnl += (100+previousPnl)*(1+currentPosition*currentPrice) - (100)
+        return cumulativePnl
 
 class ScoreCalculator(Feature):
     @classmethod
@@ -406,8 +408,10 @@ class TPCalculator(Feature):
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
-        currentScore = 1 if (trueValue==0 and predictionData>featureParams['threshold']) else 0
+
+        currentScore = 1 if ((trueValue==1) & (predictionData<=featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
+        print('True Positive')
         print(score)
         return score
 
@@ -423,8 +427,9 @@ class TNCalculator(Feature):
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
-        currentScore = 1 if (trueValue==1 and predictionData<=featureParams['threshold']) else 0
+        currentScore = 1 if ((trueValue==0) & (predictionData>featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
+        print('True Negative')
         print(score)
         return score
 
@@ -440,8 +445,9 @@ class FPCalculator(Feature):
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
-        currentScore = 1 if (trueValue==1 and predictionData>featureParams['threshold']) else 0
+        currentScore = 1 if ((trueValue==0) & (predictionData<=featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
+        print('False Positive')
         print(score)
         return score
 
@@ -457,8 +463,9 @@ class FNCalculator(Feature):
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
-        currentScore = 1 if (trueValue==0 and predictionData<=featureParams['threshold']) else 0
+        currentScore = 1 if ((trueValue==1) & (predictionData>featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
+        print('False Negative')
         print(score)
         return score
 
@@ -469,12 +476,13 @@ class PrecisionCalculator(Feature):
         ids = list(instrumentManager.getAllInstrumentsByInstrumentId())
         if updateNum <2 :
             return pd.Series(0.5, index=ids)
-            
+        # import pdb;pdb.set_trace()            
         tp = instrumentLookbackData.getFeatureDf(featureParams['truePositive']).iloc[-1]
 
         fp = instrumentLookbackData.getFeatureDf(featureParams['falsePositive']).iloc[-1]
         score = tp / (tp + fp)#sm.accuracy_score(predictionData, trueValue)
-        print(score)
+        print('precision:')
+        print( score)
         return score
 
 class RecallCalculator(Feature):
@@ -489,6 +497,7 @@ class RecallCalculator(Feature):
 
         fn = instrumentLookbackData.getFeatureDf(featureParams['falseNegative']).iloc[-1]
         score = tp / (tp + fn)#sm.accuracy_score(predictionData, trueValue)
+        print('recall:')
         print(score)
         return score
 
@@ -504,5 +513,6 @@ class F1Calculator(Feature):
         recall = instrumentLookbackData.getFeatureDf(featureParams['recall']).iloc[-1]
 
         score = 2 * (precision * recall) / (precision + recall)
+        print('F1:')
         print(score)
         return score

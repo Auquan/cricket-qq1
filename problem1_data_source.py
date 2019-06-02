@@ -73,17 +73,16 @@ class Problem1DataSource(DataSource):
                 bookDataByInstrument[ids].drop([col for col in bookDataByInstrument[ids] if col in self._targetVariableList], axis=1, inplace=True)
         return bookDataByInstrument
 
-    def loadLiveUpdates(self, featureList):
-        self.featureList = featureList
+    def loadLiveUpdates(self):
         self._allTimes, self._groupedInstrumentUpdates = self.getGroupedInstrumentUpdates()
 
     def getInstrumentUpdateFromRow(self, instrumentId, row):
         bookData = row
-        timeKey = self._timeKey
-        for key in list(bookData):
+        for key in bookData:
             if is_number(bookData[key]):
                 bookData[key] = float(bookData[key])
-
+        timeKey = self._timeKey
+        # import pdb; pdb.set_trace()
         timeOfUpdate = datetime.strptime(row[timeKey], self._timeStringFormat)
         print('Processing for: '+row[timeKey])
         bookData.pop(timeKey, None)
@@ -112,6 +111,7 @@ class Problem1DataSource(DataSource):
         else:
             url = '%s/%s.csv' % (self._downloadUrl, instrumentId)
 
+        print('Downloading from %s'%url)
         response = urlopen(url)
         status = response.getcode()
         if status == 200:
@@ -141,14 +141,13 @@ if __name__ == "__main__":
                              targetVariableList=[],
                              targetVariable = 'Out',
                              timeKey = 'date',
-                             timeStringFormat = '%Y-%m-%d',
-                             startDateStr='1993/01/31',
-                             endDateStr='2012/12/31',
+                             timeStringFormat = '%Y-%m-%d %H:%M:%S',
+                             startDateStr='2010/01/01',
+                             endDateStr='2015/12/31',
                              liveUpdates=True,
                              pad=True)
     t = ds.emitAllInstrumentUpdates()
-    fl = []
-    ds.loadLiveUpdates(fl)
+    ds.loadLiveUpdates()
     groupedInstrumentUpdates = ds.emitInstrumentUpdates()
     timeOfUpdate, instrumentUpdates = next(groupedInstrumentUpdates)
     print(timeOfUpdate, instrumentUpdates[0].getBookData())
@@ -158,3 +157,4 @@ if __name__ == "__main__":
             print(timeOfUpdate, instrumentUpdates[0].getBookData())
         except StopIteration:
             break
+    print(ds.getBookDataFeatures(), ds.getInstrumentIds())

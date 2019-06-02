@@ -9,7 +9,6 @@ class Problem1ExecutionSystem(SimpleExecutionSystem):
     def __init__(self, enter_threshold=0.7, exit_threshold=0.55, longLimit=10,
                  shortLimit=10, capitalUsageLimit=0, enterlotSize=1, exitlotSize = 1, limitType='L', price='close'):
         self.priceFeature = price
-        self.predictionType = predictionType
         super(Problem1ExecutionSystem, self).__init__(enter_threshold=enter_threshold,
                                                                  exit_threshold=exit_threshold,
                                                                  longLimit=longLimit, shortLimit=shortLimit,
