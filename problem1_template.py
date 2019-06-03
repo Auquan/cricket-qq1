@@ -39,36 +39,43 @@ from problem1_trading_params import MyTradingParams
 class MyTradingFunctions():
 
     def __init__(self):  #Put any global variables here
-        self.lookback = 120  ## max number of historical datapoints you want at any given time
+        self.lookback = 300  ## max number of historical datapoints you want at any given time - for example the entire history of the game
         self.targetVariable = 'Out'
         self.__dataParser = None
         self.dataSetId = 'p1'
         self.instrumentIds = ['trainingData']
         self.startDate = '2010/01/02'
-        self.endDate = '2010/02/01'#'2015/12/31'
+        self.endDate = '2015/12/31'
         self.params = {}
 
         # for example you can import and store an ML model from scikit learn in this dict
         self.model = {}
 
-        # and set a frequency at which you want to update the model
-
+        # and set a frequency at which you want to update the model if updating on the go
         self.updateFrequency = 6
+        self.threshold = 0.5        # Threshold to predict classes - class is predicted as 1 if predicted probability of 0 is below threshold and 0 else
         self.__featureKeys = []
         self.__featureDict = self.convertCategoricalVariablesAndTrain()
         self.predictionLogFile = open('predictions.csv', 'a')
         self.headerNotSet = True
-        self.threshold = 0.1
+        
 
     ###########################################
     ## ONLY FILL THE FOUR FUNCTIONS BELOW    ##
     ###########################################
+
+    ############################################################################################
+    #### TODO 1a: Write your logic to Text Variables to Categorical Variables here            ##
+    #### TODO 1b: If you want to train a model(s) at the start, write that logic here as well ##
+    ############################################################################################
 
     def convertCategoricalVariablesAndTrain(self):
         ds = self.getDataParser()
         dataDict = ds.getAllInstrumentUpdatesDict()
 
         ids = self.instrumentIds 
+
+
 
         print('Converting Text Variables to Categorical Variables')
 
@@ -79,19 +86,22 @@ class MyTradingFunctions():
 
             feature_dict = {}
 
-            self.setFeatureKeys(data.columns)
+            featureList = list(data.columns)
+            featureList.remove(self.getTargetVariableKey())
+
+            ### This variable stores all the features you want to use 
+            ###     to train your algorithm. Remember to update this 
+            ###     in getInstrumentFeatureConfigDicts()
+            ###     if you create any new ones
+
+            self.setFeatureKeys(featureList)
+
+            ########################################################
+            ####    Your logic for categorical Variables        ####
+            ########################################################
 
             for feature in data.columns:
                 if data[feature].dtype==object:    
-                    # fs = data[feature].unique()
-                    # f_dict = {}
-                    # count = 0
-                    # for f in fs:
-                    #     data[feature][data[feature]==f] = count
-                    #     f_dict[f] = count
-                    #     count = count+1
-                    # feature_dict[feature] = f_dict
-
                     le = preprocessing.LabelEncoder()
                     fs = data[feature].unique()
                     le.fit(fs)
@@ -106,14 +116,26 @@ class MyTradingFunctions():
 
             print('Training a classifier')
 
-            self.model[s]= DecisionTreeClassifier(max_depth = 10)
+            self.model[s]= DecisionTreeClassifier(max_depth = 10, min_samples_split=.05, min_samples_leaf=0.02)
 
             training_data = data.copy()
+
+            #############################################################
+            #### Create any new features you want                      ##
+            #### IMPORTANT: Remember to also create these features in  ##
+            #### getInstrumentFeatureConfigDicts()                     ##
+            #############################################################
+
             training_data['run_last_6_balls'] = training_data['innings_runs_before_ball'].rolling(6).sum()
+
+            #### Define target Variable
             y = training_data[self.targetVariable]
             del training_data[self.targetVariable]
 
             training_data.fillna(0, inplace=True)
+
+            print('Training Data Size...')
+            print(training_data.shape)
 
             self.model[s].fit(training_data, y) 
 
@@ -127,14 +149,25 @@ class MyTradingFunctions():
 
             #self.model[s].fit(X_train, y_train) 
 
+            #############################################################
+            ####        See metrics on training data                #####
+            #############################################################
+
             lg = log_loss(y, self.model[s].predict_proba(training_data))
             print('Log-Loss on training data: %.3f'%lg)
+
+
+            ##################################################################
+            #### Write your logic for prediction threshold for classes    ####
+            #### This is important to get right accuracy,f1 score metrics ####
+            ##################################################################
 
             print('Setting prediction threshold...')
 
             #### code to set prediction threshold
             #### for now we are hardcoding
-            self.threshold = 0.1
+            #### class is predicted as 1 if predicted probability of 0 is below threshold and 0 else
+            self.setThreshold(0.95)
 
             print('Done, moving now')
 
@@ -159,14 +192,22 @@ class MyTradingFunctions():
     def getInstrumentFeatureConfigDicts(self):
 
     ##############################################################################
-    ### TODO 1a: FILL THIS FUNCTION TO CREATE DESIRED FEATURES for each symbol. ###
+    ### TODO 2a: FILL THIS FUNCTION TO CREATE DESIRED FEATURES for each symbol ###
     ### USE TEMPLATE BELOW AS EXAMPLE                                          ###
     ##############################################################################
 
+        newFeatureList = []
         sumDict = {'featureKey': 'run_last_6_balls',
                      'featureId': 'moving_sum',
                      'params': {'period': 6,
                                 'featureName': 'innings_runs_before_ball'}}
+        newFeatureList += [sumDict['featureKey']]
+
+
+        ### This variable stores all the features you want to use 
+        ###     to train your algorithm. Remember to update this 
+        ###     with all the new ones you created
+        self.setFeatureKeys(self.getFeatureKeys()+newFeatureList)
         return [sumDict]
 
 
@@ -222,31 +263,31 @@ class MyTradingFunctions():
         Y = lookbackInstrumentFeatures.getFeatureDf(self.getTargetVariableKey())
 
         #Creating an array to load and hold all features
-        X = []         # 3D array timestamp x featureNames x instrumentIds
-        x_star = []                             # Data point at time t (whose Value will be predicted) featureKeys x instrumentIds
-        for f in self.__featureKeys:
+
+        X = []                                  # 2D array timestamp x featureNames 
+        x_star = []                             # 1D array Data point at time t (whose Value will be predicted) featureKeys 
+        
+        for f in self.__featureKeys:            # Looping over all features
+            
             data = lookbackInstrumentFeatures.getFeatureDf(f).fillna(0)
-            if (data.dtypes==object).bool():
-                data = self.__featureDict[f].transform(data)        #DF with rows=timestamp and columns=instrumentIds
-                X.append(data)
-                # import pdb;pdb.set_trace()
-                x_star.append(np.array(data[-1]))
+
+            if (data.dtypes==object).bool():                        # if data is test, transform it
+                data = self.__featureDict[f].transform(data)        # DF with rows=timestamp and columns=instrumentIds
+                X.append(data)                                      # append it to training data
+
+                x_star.append(np.array(data[-1]))                   # append last row to data point who's value we will predict
             else:
-                X.append(data.values)
+                X.append(data.values.T[0])
 
                 x_star.append(np.array(data.iloc[-1]))
-            import pdb;pdb.set_trace()
         
-        X = np.nan_to_num(np.array(X))                                             # shape = featureKeys x timestamp x instrumentIds
-        x_star = np.nan_to_num(np.array(x_star))                                       # shape = featureKeys x instrumentIds
+        X = np.nan_to_num(np.column_stack(X))                       # shape = featureKeys x timestamp 
+        x_star = np.nan_to_num(np.array(x_star))                    # shape = featureKeys 
         
-        # import pdb;pdb.set_trace()
         # Now looping over all stocks:
         ids = self.instrumentIds 
         for i in range(len(ids)):
             s = ids[i]
-            
-            
             #####################################################################
             ##### If you are training on the go, use the code below to train ####
             #####################################################################
@@ -283,7 +324,6 @@ class MyTradingFunctions():
 
             # make your prediction using your model
             # first verify none of the features are nan or inf
-            # import pdb;pdb.set_trace()
             if np.isnan(x_star).any():
                 y_predict = 0.5
             else:
@@ -292,11 +332,13 @@ class MyTradingFunctions():
 
                 except Exception as e: 
                     print(e)
-                    y_predict = 0.5 
+                    y_predict = [[0.5]] 
 
-            predictions[s] = y_predict
-            print('prediction for %s %s :%.3f'%(s, self.targetVariable, y_predict))
+            predictions[s] = y_predict[0][0]
+            print('prediction for %s %s :%.3f'%(s, self.targetVariable, y_predict[0][0]))
+        
         self.logPredictions(time, predictions)
+        
         return predictions
 
     ###########################################
@@ -352,6 +394,19 @@ class MyTradingFunctions():
 
     def setFeatureKeys(self, featureList):
         self.__featureKeys = featureList
+
+    def setThreshold(self, threshold):
+        self.threshold = threshold
+
+    def getThreshold(self):
+        return self.threshold
+
+    def setDates(self, dates):
+        self.startDate = dates[0]
+        self.endDate = dates[1]
+
+    def getDates(self):
+        return [self.startDate, self.endDate]
 
     def setPredictionLogFile(self, logFileName):
         self.predictionLogFile = open(logFileName, 'a')
@@ -429,7 +484,9 @@ if __name__ == "__main__":
         
         tf = MyTradingFunctions()
         print('Loaded config dicts and prediction function, Loading Problem Params')
-        tf.setInstrumentIds(['trainingData'])
+        print('Switching to smaller dataset for backtesting')
+        tf.setDates(['2015/12/01','2015/12/31'])
+        tf.setDataSetId('p1Backtest')
         tsParams = MyTradingParams(tf)
         print('Loaded Problem Params, Loading Backtester and Data')
         tradingSystem = TradingSystem(tsParams)

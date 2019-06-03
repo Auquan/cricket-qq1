@@ -148,7 +148,8 @@ class MyTradingParams(TradingSystemParameters):
         accuracyDict = {'featureKey': 'accuracy',
                      'featureId': 'AccuracyCalculator',
                      'params': {'predictionKey': 'prediction',
-                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey()}}
+                                'targetVariable' : self.__tradingFunctions.getTargetVariableKey(),
+                                'threshold':self.__tradingFunctions.threshold}}
         tpDict = {'featureKey': 'truePositive',
                      'featureId': 'TPCalculator',
                      'params': {'predictionKey': 'prediction',
@@ -365,17 +366,20 @@ class ScoreCalculator(Feature):
         instrumentLookbackData = instrumentManager.getLookbackInstrumentFeatures()
         ids = list(instrumentManager.getAllInstrumentsByInstrumentId())
         if updateNum <2 :
-            return pd.Series(0.5, index=ids)
+            return pd.Series(0, index=ids)
             
-        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-2]
+        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-1]
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
         currentScore = pd.Series(0.5, index=previousValue.index)
-        yp = 1-predictionData
-        currentScore[predictionData!=0.5] = -(trueValue*np.log(yp) + (1 - trueValue)*np.log(1 - yp))
+        yp = 1-predictionData.values[0]
+        yp = 0.001 if yp<0.001 else yp
+        yp = 0.999 if yp>0.999 else yp
+        currentScore[predictionData!=0.5] = -(trueValue.values[0]*np.log(yp) + (1 - trueValue.values[0])*np.log(1 - yp))
         score = (previousValue*(updateNum-1)+currentScore)/updateNum#sm.accuracy_score(predictionData, trueValue)
-        print(score)
+        print('True Value: %i'%trueValue.values[0])
+        print('LogLoss: %.2f'%score.values[0])
         return score
 
 class AccuracyCalculator(Feature):
@@ -384,16 +388,18 @@ class AccuracyCalculator(Feature):
         instrumentLookbackData = instrumentManager.getLookbackInstrumentFeatures()
         ids = list(instrumentManager.getAllInstrumentsByInstrumentId())
         if updateNum <2 :
-            return pd.Series(0.5, index=ids)
+            return pd.Series(0, index=ids)
             
-        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-2]
+        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-1]
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
+        predictedValue = 0 if ((1-predictionData.values[0])<featureParams['threshold']) else 1
+
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
-        currentScore = pd.Series(0.5, index=previousValue.index)
-        currentScore[predictionData!=0.5] = currentScore +(0.5 -  np.abs(predictionData - trueValue))
+        currentScore = pd.Series(0, index=previousValue.index)
+        currentScore[predictionData!=0.5] = currentScore +(1 -  np.abs(predictedValue - trueValue))
         score = (previousValue*(updateNum-1)+currentScore)/updateNum#sm.accuracy_score(predictionData, trueValue)
-        print(score)
+        print('Accuracy: %.2f'%score.values[0])
         return score
 
 class TPCalculator(Feature):
@@ -404,15 +410,14 @@ class TPCalculator(Feature):
         if updateNum <2 :
             return pd.Series(0, index=ids)
             
-        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-2]
+        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-1]
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
 
         currentScore = 1 if ((trueValue==1) & (predictionData<=featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
-        print('True Positive')
-        print(score)
+        print('Correct 1s (True Positive): %i'%score.values[0])
         return score
 
 class TNCalculator(Feature):
@@ -423,14 +428,13 @@ class TNCalculator(Feature):
         if updateNum <2 :
             return pd.Series(0, index=ids)
             
-        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-2]
+        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-1]
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
         currentScore = 1 if ((trueValue==0) & (predictionData>featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
-        print('True Negative')
-        print(score)
+        print('Correct 0s(True Negative): %i'%score.values[0])
         return score
 
 class FPCalculator(Feature):
@@ -441,14 +445,13 @@ class FPCalculator(Feature):
         if updateNum <2 :
             return pd.Series(updateNum, index=ids)
             
-        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-2]
+        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-1]
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
         currentScore = 1 if ((trueValue==0) & (predictionData<=featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
-        print('False Positive')
-        print(score)
+        print('Incorrect 1s(False Positive): %i'%score.values[0])
         return score
 
 class FNCalculator(Feature):
@@ -459,14 +462,13 @@ class FNCalculator(Feature):
         if updateNum <2 :
             return pd.Series(0, index=ids)
             
-        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-2]
+        predictionData = instrumentLookbackData.getFeatureDf(featureParams['predictionKey']).iloc[-1]
         trueValue = instrumentLookbackData.getFeatureDf(featureParams['targetVariable']).iloc[-1]
 
         previousValue = instrumentLookbackData.getFeatureDf(featureKey).iloc[-1]
         currentScore = 1 if ((trueValue==1) & (predictionData>featureParams['threshold'])).bool() else 0
         score = (previousValue+currentScore)
-        print('False Negative')
-        print(score)
+        print('Incorrect 0s(False Negative): %i'%score.values[0])
         return score
 
 class PrecisionCalculator(Feature):
@@ -475,14 +477,13 @@ class PrecisionCalculator(Feature):
         instrumentLookbackData = instrumentManager.getLookbackInstrumentFeatures()
         ids = list(instrumentManager.getAllInstrumentsByInstrumentId())
         if updateNum <2 :
-            return pd.Series(0.5, index=ids)
+            return pd.Series(0, index=ids)
         # import pdb;pdb.set_trace()            
         tp = instrumentLookbackData.getFeatureDf(featureParams['truePositive']).iloc[-1]
 
         fp = instrumentLookbackData.getFeatureDf(featureParams['falsePositive']).iloc[-1]
         score = tp / (tp + fp)#sm.accuracy_score(predictionData, trueValue)
-        print('precision:')
-        print( score)
+        print('precision: %.2f'%score.values[0])
         return score
 
 class RecallCalculator(Feature):
@@ -491,14 +492,13 @@ class RecallCalculator(Feature):
         instrumentLookbackData = instrumentManager.getLookbackInstrumentFeatures()
         ids = list(instrumentManager.getAllInstrumentsByInstrumentId())
         if updateNum <2 :
-            return pd.Series(0.5, index=ids)
+            return pd.Series(0, index=ids)
             
         tp = instrumentLookbackData.getFeatureDf(featureParams['truePositive']).iloc[-1]
 
         fn = instrumentLookbackData.getFeatureDf(featureParams['falseNegative']).iloc[-1]
         score = tp / (tp + fn)#sm.accuracy_score(predictionData, trueValue)
-        print('recall:')
-        print(score)
+        print('recall: %.2f'%score.values[0])
         return score
 
 class F1Calculator(Feature):
@@ -507,12 +507,11 @@ class F1Calculator(Feature):
         instrumentLookbackData = instrumentManager.getLookbackInstrumentFeatures()
         ids = list(instrumentManager.getAllInstrumentsByInstrumentId())
         if updateNum <2 :
-            return pd.Series(0.5, index=ids)
+            return pd.Series(0, index=ids)
             
-        precision = instrumentLookbackData.getFeatureDf(featureParams['precision']).iloc[-2]
+        precision = instrumentLookbackData.getFeatureDf(featureParams['precision']).iloc[-1]
         recall = instrumentLookbackData.getFeatureDf(featureParams['recall']).iloc[-1]
 
         score = 2 * (precision * recall) / (precision + recall)
-        print('F1:')
-        print(score)
+        print('F1: %.2f'%score.values[0])
         return score
