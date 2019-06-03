@@ -282,7 +282,7 @@ class MyTradingFunctions():
                 x_star.append(np.array(data.iloc[-1]))
         
         X = np.nan_to_num(np.column_stack(X))                       # shape = featureKeys x timestamp 
-        x_star = np.nan_to_num(np.array(x_star))                    # shape = featureKeys 
+        x_star = np.nan_to_num(np.column_stack(x_star))                    # shape = featureKeys 
         
         # Now looping over all stocks:
         ids = self.instrumentIds 
@@ -324,6 +324,7 @@ class MyTradingFunctions():
 
             # make your prediction using your model
             # first verify none of the features are nan or inf
+            #import pdb;#pdb.set_trace()
             if np.isnan(x_star).any():
                 y_predict = 0.5
             else:
@@ -354,7 +355,7 @@ class MyTradingFunctions():
         ds = Problem1DataSource(cachedFolderName='historicalData/',
                          dataSetId=self.dataSetId,
                          instrumentIds=self.instrumentIds,
-                         downloadUrl = 'https://s3.us-east-2.amazonaws.com/qq11-data',
+                         downloadUrl = 'https://qq11-data.s3.amazonaws.com',
                          targetVariable = self.targetVariable,
                          timeKey = 'date',
                          timeStringFormat = '%Y-%m-%d %H:%M:%S',
