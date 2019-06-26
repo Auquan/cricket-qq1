@@ -104,12 +104,15 @@ class MyTradingFunctions():
                 if data[feature].dtype==object:    
                     le = preprocessing.LabelEncoder()
                     fs = data[feature].unique()
+                    fs = np.append(fs,['unknown'])
                     le.fit(fs)
                     
                     data[feature] = le.transform(data[feature])
 
                     feature_dict[feature] = le
 
+            feature_dict['bowling_team_name'] = feature_dict['batting_team_name']
+            feature_dict['toss_winner'] = feature_dict['batting_team_name']
             ########################################################
             ####    If you are training a model at the start    ####
             ########################################################
